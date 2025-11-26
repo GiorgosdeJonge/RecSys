@@ -18,8 +18,12 @@ The provided code works with the original column names from the dataset (e.g., `
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -r requirements.txt
+pip install --no-cache-dir -r requirements.txt
 ```
+
+> **Tip:** Use a clean virtual environment (not the base Conda/Anaconda Python) to avoid version conflicts such as
+> `numpy` 2.x being mixed with `pandas`/`scikit-learn` wheels built for NumPy 1.x. If you previously installed packages
+> system-wide or in another environment, recreate the venv and reinstall the pinned requirements above.
 
 ## Usage
 You can generate recommendations either from a seed title or directly from user tag preferences.
