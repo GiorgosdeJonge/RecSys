@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
@@ -251,9 +252,11 @@ def _parse_tag_weights(raw: Optional[str]) -> Optional[Dict[int, float]]:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Content-based recommender for Goodbooks-10k")
-    parser.add_argument("--books-path", required=True, help="Path to books.csv")
-    parser.add_argument("--tags-path", required=True, help="Path to tags.csv")
-    parser.add_argument("--book-tags-path", required=True, help="Path to book_tags.csv")
+    parser.add_argument("--books-path", help="Path to books.csv (defaults to data/books.csv if present)")
+    parser.add_argument("--tags-path", help="Path to tags.csv (defaults to data/tags.csv if present)")
+    parser.add_argument(
+        "--book-tags-path", help="Path to book_tags.csv (defaults to data/book_tags.csv if present)"
+    )
     parser.add_argument("--title", help="Book title (full or partial) to base recommendations on")
     parser.add_argument("--preferred-tags", help="Comma-separated tag_ids representing user interests")
     parser.add_argument(
@@ -265,6 +268,26 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--text-weight", type=float, default=1.0, help="Weight applied to text features (title flow)")
     parser.add_argument("--tag-weight", type=float, default=1.0, help="Weight applied to tag features (title flow)")
     return parser.parse_args()
+
+
+def _resolve_data_path(
+    supplied: Optional[str], default: str, description: str, flag_hint: str
+) -> Path:
+    """Resolve a data path from a flag or sensible default with helpful errors."""
+
+    if supplied:
+        path = Path(supplied)
+        if path.exists():
+            return path
+        raise FileNotFoundError(f"{description} not found at {path}. Check the path or pass a valid one via {flag_hint}.")
+
+    fallback = Path(default)
+    if fallback.exists():
+        return fallback
+
+    raise FileNotFoundError(
+        f"{description} missing. Place it at {fallback} or provide the path explicitly with {flag_hint}."
+    )
 
 
 def _resolve_tag_inputs(raw: str, tags: pd.DataFrame) -> Tuple[List[int], List[str]]:
@@ -356,9 +379,15 @@ def _interactive_tag_prompt(recommender: TagPreferenceRecommender, tags: pd.Data
 def main():
     args = _parse_args()
 
-    books = load_books(args.books_path)
-    tags = load_tags(args.tags_path)
-    book_tags = load_book_tags(args.book_tags_path)
+    books_path = _resolve_data_path(args.books_path, "data/books.csv", "books.csv", "--books-path")
+    tags_path = _resolve_data_path(args.tags_path, "data/tags.csv", "tags.csv", "--tags-path")
+    book_tags_path = _resolve_data_path(
+        args.book_tags_path, "data/book_tags.csv", "book_tags.csv", "--book-tags-path"
+    )
+
+    books = load_books(str(books_path))
+    tags = load_tags(str(tags_path))
+    book_tags = load_book_tags(str(book_tags_path))
 
     tag_matrix = build_tag_matrix(tags, book_tags, min_count=args.min_count)
 

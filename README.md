@@ -27,6 +27,9 @@ pip install --no-cache-dir -r requirements.txt
 
 ## Usage
 You can generate recommendations either from a seed title or directly from user tag preferences.
+If your Goodbooks CSVs live in `./data` (the default suggested layout), you can simply run the commands below without
+adding extra flags. If your files are elsewhere, pass `--books-path`, `--tags-path`, and `--book-tags-path` to point to
+them explicitly.
 
 ### Recommend from a seed title
 Build the feature matrix (titles/authors + tag features) and ask for similar books:
