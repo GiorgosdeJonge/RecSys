@@ -6,10 +6,14 @@ This repository contains a starter implementation for building a content-based r
 Download the dataset locally (no data is committed to the repo):
 
 1. From Kaggle: [goodbooks-10k](https://www.kaggle.com/datasets/zygmuntz/goodbooks-10k)
-2. Extract the CSV files into a `data/` directory at the project root. The scripts expect at minimum:
-   - `data/books.csv`
-   - `data/tags.csv`
-   - `data/book_tags.csv`
+2. Extract the CSV files into a `data/` directory at the project root. The scripts look for any of these by default:
+   - `data/books.csv` (also `data/goodbooks-10k/books.csv`, `goodbooks-10k/books.csv`, or `books.csv`)
+   - `data/tags.csv` (also `data/goodbooks-10k/tags.csv`, `goodbooks-10k/tags.csv`, or `tags.csv`)
+   - `data/book_tags.csv` (also `data/goodbooks-10k/book_tags.csv`, `goodbooks-10k/book_tags.csv`, or `book_tags.csv`)
+
+If your CSVs live somewhere else entirely, either pass the explicit paths via `--books-path`, `--tags-path`, and `--book-tags-path`,
+or set an environment variable `GOODBOOKS_DATA_DIR` that points to the folder containing the files. The CLI will search that
+directory before falling back to the repo root or current working directory.
 
 The provided code works with the original column names from the dataset (e.g., `book_id`, `goodreads_book_id`, `original_title`, `authors`).
 

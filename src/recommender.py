@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -276,35 +277,46 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
+def _expand_env_path(env_var: str) -> Optional[Path]:
+    """Return the path from an environment variable if it points to an existing directory."""
+
+    raw = os.getenv(env_var)
+    if not raw:
+        return None
+
+    candidate = Path(raw).expanduser().resolve()
+    return candidate if candidate.exists() else None
+
+
 def _resolve_data_path(
     supplied: Optional[str],
     defaults: Iterable[str],
     description: str,
     flag_hint: str,
+    env_var: str = "GOODBOOKS_DATA_DIR",
 ) -> Path:
-    """Prefer explicit CLI path; otherwise fall back to common repo locations."""
+    """Prefer explicit CLI path; otherwise fall back to common repo and env var locations."""
 
     if supplied:
-        path = Path(supplied)
+        path = Path(supplied).expanduser()
         if path.exists():
             return path
         raise FileNotFoundError(
             f"{description} not found at {path}. Check the path or pass a valid one via {flag_hint}."
         )
 
-    root = _project_root()
-    for rel in defaults:
-        path = root / rel
-        if path.exists():
-            return path
+    env_base = _expand_env_path(env_var)
+    search_roots = [p for p in [env_base, _project_root(), Path.cwd()] if p is not None]
 
-    for rel in defaults:
-        path = Path(rel)
-        if path.exists():
-            return path
+    for root in search_roots:
+        for rel in defaults:
+            path = (root / rel).expanduser()
+            if path.exists():
+                return path
 
     raise FileNotFoundError(
-        f"{description} missing. Place it at one of {list(defaults)} or provide the path explicitly with {flag_hint}."
+        f"{description} missing. Place it at one of {list(defaults)} under {env_var}, the repo root, or the current "
+        f"working directory, or provide the path explicitly with {flag_hint}."
     )
 
 
@@ -451,19 +463,19 @@ def main():
 
     books_path = _resolve_data_path(
         args.books_path,
-        ["data/goodbooks-10k/books.csv", "data/books.csv"],
+        ["data/goodbooks-10k/books.csv", "data/books.csv", "goodbooks-10k/books.csv", "books.csv"],
         "books.csv",
         "--books-path",
     )
     tags_path = _resolve_data_path(
         args.tags_path,
-        ["data/goodbooks-10k/tags.csv", "data/tags.csv"],
+        ["data/goodbooks-10k/tags.csv", "data/tags.csv", "goodbooks-10k/tags.csv", "tags.csv"],
         "tags.csv",
         "--tags-path",
     )
     book_tags_path = _resolve_data_path(
         args.book_tags_path,
-        ["data/goodbooks-10k/book_tags.csv", "data/book_tags.csv"],
+        ["data/goodbooks-10k/book_tags.csv", "data/book_tags.csv", "goodbooks-10k/book_tags.csv", "book_tags.csv"],
         "book_tags.csv",
         "--book-tags-path",
     )
