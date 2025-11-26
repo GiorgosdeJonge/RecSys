@@ -1,1 +1,96 @@
-# RecSys
+# RecSys: Content-Based Book Recommender
+
+This repository contains a starter implementation for building a content-based recommender system on the [Goodbooks-10k dataset](https://github.com/zygmuntz/goodbooks-10k). The goal is to recommend books based on their metadata (titles, authors, and tags) using TF–IDF features and cosine similarity.
+
+## Dataset
+Download the dataset locally (no data is committed to the repo):
+
+1. From Kaggle: [goodbooks-10k](https://www.kaggle.com/datasets/zygmuntz/goodbooks-10k)
+2. Extract the CSV files into a `data/` directory at the project root. The scripts expect at minimum:
+   - `data/books.csv`
+   - `data/tags.csv`
+   - `data/book_tags.csv`
+
+The provided code works with the original column names from the dataset (e.g., `book_id`, `goodreads_book_id`, `original_title`, `authors`).
+
+## Setup
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install --no-cache-dir -r requirements.txt
+```
+
+> **Tip:** Use a clean virtual environment (not the base Conda/Anaconda Python) to avoid version conflicts such as
+> `numpy` 2.x being mixed with `pandas`/`scikit-learn` wheels built for NumPy 1.x. If you previously installed packages
+> system-wide or in another environment, recreate the venv and reinstall the pinned requirements above.
+
+## Usage
+You can generate recommendations either from a seed title or directly from user tag preferences.
+
+### Recommend from a seed title
+Build the feature matrix (titles/authors + tag features) and ask for similar books:
+
+```bash
+python src/recommender.py \
+  --books-path data/books.csv \
+  --tags-path data/tags.csv \
+  --book-tags-path data/book_tags.csv \
+  --title "The Hobbit"
+```
+
+The script will print the top recommendations for the requested title. You can adjust the number of results with `--top-k` and search by partial title matches.
+
+### Recommend from user tag preferences
+Use a list of tag identifiers (optionally with weights) to describe a user's interests. The recommender constructs a TF–IDF tag profile for each book and scores cosine similarity to the provided user vector:
+
+```bash
+python src/recommender.py \
+  --books-path data/books.csv \
+  --tags-path data/tags.csv \
+  --book-tags-path data/book_tags.csv \
+  --preferred-tags "30574,11305,11557" \
+  --top-k 15
+```
+
+To weight specific tags more heavily, pass `--preferred-tag-weights` using `tag_id:weight` pairs:
+
+```bash
+python src/recommender.py \
+  --books-path data/books.csv \
+  --tags-path data/tags.csv \
+  --book-tags-path data/book_tags.csv \
+  --preferred-tag-weights "30574:1.0,11305:0.6,11557:0.8"
+```
+
+The output includes the strongest contributing tags per book (tag names are shown when `tags.csv` is provided).
+
+### Interactive tag prompt (asks you for tags and shows matching history)
+If you prefer to type tags at runtime, simply omit `--preferred-tags` and `--preferred-tag-weights`. The CLI will ask for tag
+names or IDs, recommend books for those tags, and optionally list books you've read that share the same tag signals:
+
+```bash
+python src/recommender.py \
+  --books-path data/books.csv \
+  --tags-path data/tags.csv \
+  --book-tags-path data/book_tags.csv
+```
+
+At the prompts:
+- Enter one or more tag names/IDs (comma-separated). Unknown tags are reported and skipped.
+- After seeing recommendations, optionally enter titles you've read to see which of them align most with your tag choices.
+
+This flow bases the recommendation on the provided tags and then surfaces similar-tag books the user already knows, making it
+easy to sanity-check the model's choices.
+
+## Project Structure
+- `src/data_loader.py` – Utilities for loading the Goodbooks CSV files and assembling the book–tag matrix.
+- `src/feature_builder.py` – Functions to create TF–IDF features from titles/authors and normalize tag weights.
+- `src/recommender.py` – CLI-ready content-based recommender built on cosine similarity.
+- `requirements.txt` – Python dependencies for the starter implementation.
+
+## Next Steps
+- Enrich text features (e.g., add book descriptions or genres).
+- Persist precomputed feature matrices for faster startup.
+- Add evaluation using the ratings data for offline validation.
+- Build a lightweight API or UI for interactive recommendations.
