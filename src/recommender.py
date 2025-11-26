@@ -270,23 +270,41 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _project_root() -> Path:
+    """Return the repository root when invoked from src/ files."""
+
+    return Path(__file__).resolve().parents[1]
+
+
 def _resolve_data_path(
-    supplied: Optional[str], default: str, description: str, flag_hint: str
+    supplied: Optional[str],
+    defaults: Iterable[str],
+    description: str,
+    flag_hint: str,
 ) -> Path:
-    """Resolve a data path from a flag or sensible default with helpful errors."""
+    """Prefer explicit CLI path; otherwise fall back to common repo locations."""
 
     if supplied:
         path = Path(supplied)
         if path.exists():
             return path
-        raise FileNotFoundError(f"{description} not found at {path}. Check the path or pass a valid one via {flag_hint}.")
+        raise FileNotFoundError(
+            f"{description} not found at {path}. Check the path or pass a valid one via {flag_hint}."
+        )
 
-    fallback = Path(default)
-    if fallback.exists():
-        return fallback
+    root = _project_root()
+    for rel in defaults:
+        path = root / rel
+        if path.exists():
+            return path
+
+    for rel in defaults:
+        path = Path(rel)
+        if path.exists():
+            return path
 
     raise FileNotFoundError(
-        f"{description} missing. Place it at {fallback} or provide the path explicitly with {flag_hint}."
+        f"{description} missing. Place it at one of {list(defaults)} or provide the path explicitly with {flag_hint}."
     )
 
 
@@ -376,13 +394,78 @@ def _interactive_tag_prompt(recommender: TagPreferenceRecommender, tags: pd.Data
             print(f"    tag overlap: {formatted}")
 
 
+def _print_recommendations(results: pd.DataFrame) -> None:
+    """Pretty-print recommendation rows safely (no crashes on missing values)."""
+
+    pd.set_option("display.max_colwidth", None)
+    if results is None or len(results) == 0 or results.empty:
+        print("No recommendations found for the provided tag preferences.")
+        return
+
+    print("\nTop recommendations based on tag preferences:\n")
+    for _, row in results.iterrows():
+        title = row.get("title") or "<unknown title>"
+        authors = row.get("authors") or "<unknown author>"
+
+        rank_val = row.get("rank", 0)
+        try:
+            rank = int(rank_val if pd.notna(rank_val) else 0)
+        except Exception:
+            rank = 0
+
+        score_val = row.get("score", 0.0)
+        try:
+            score = float(score_val if pd.notna(score_val) else 0.0)
+        except Exception:
+            score = 0.0
+
+        print(f"{rank:2d}. {title} — {authors} (score={score:.3f})")
+
+        contribs = row.get("top_tag_contributors") or []
+        if isinstance(contribs, (list, tuple)) and contribs:
+            try:
+                formatted = ", ".join(f"{name}:{float(contrib):.3f}" for name, contrib in contribs)
+                print(f"    top tag contributors: {formatted}")
+            except Exception:
+                pass
+
+
+def _run_preference_flow(recommender: TagPreferenceRecommender, tags: pd.DataFrame, args: argparse.Namespace) -> None:
+    """Drive the tag-preference path with optional interactivity."""
+
+    if args.preferred_tags is None and args.preferred_tag_weights is None:
+        _interactive_tag_prompt(recommender, tags, args.top_k)
+        return
+
+    results = recommender.recommend(
+        preferred_tags=args.preferred_tags,
+        preferred_tag_weights=args.preferred_tag_weights,
+        top_k=args.top_k,
+        include_contributors=True,
+    )
+    _print_recommendations(results)
+
+
 def main():
     args = _parse_args()
 
-    books_path = _resolve_data_path(args.books_path, "data/books.csv", "books.csv", "--books-path")
-    tags_path = _resolve_data_path(args.tags_path, "data/tags.csv", "tags.csv", "--tags-path")
+    books_path = _resolve_data_path(
+        args.books_path,
+        ["data/goodbooks-10k/books.csv", "data/books.csv"],
+        "books.csv",
+        "--books-path",
+    )
+    tags_path = _resolve_data_path(
+        args.tags_path,
+        ["data/goodbooks-10k/tags.csv", "data/tags.csv"],
+        "tags.csv",
+        "--tags-path",
+    )
     book_tags_path = _resolve_data_path(
-        args.book_tags_path, "data/book_tags.csv", "book_tags.csv", "--book-tags-path"
+        args.book_tags_path,
+        ["data/goodbooks-10k/book_tags.csv", "data/book_tags.csv"],
+        "book_tags.csv",
+        "--book-tags-path",
     )
 
     books = load_books(str(books_path))
@@ -408,33 +491,11 @@ def main():
 
     preferred_tags = _parse_tag_list(args.preferred_tags)
     preferred_tag_weights = _parse_tag_weights(args.preferred_tag_weights)
+    args.preferred_tags = preferred_tags
+    args.preferred_tag_weights = preferred_tag_weights
     recommender = TagPreferenceRecommender(tag_matrix, books, tags)
 
-    # Interactive branch when no preferences were provided via flags
-    if preferred_tags is None and preferred_tag_weights is None:
-        _interactive_tag_prompt(recommender, tags, args.top_k)
-        return
-
-    results = recommender.recommend(
-        preferred_tags=preferred_tags,
-        preferred_tag_weights=preferred_tag_weights,
-        top_k=args.top_k,
-        include_contributors=True,
-    )
-
-    pd.set_option("display.max_colwidth", None)
-    if results.empty:
-        print("No recommendations found for the provided tag preferences.")
-        return
-
-    print("\nTop recommendations based on tag preferences:\n")
-    for _, row in results.iterrows():
-        title = row["title"] or "<unknown title>"
-        authors = row["authors"] or "<unknown author>"
-        print(f"{row['rank']:2d}. {title} — {authors} (score={row['score']:.3f})")
-        if row["top_tag_contributors"]:
-            formatted = ", ".join(f"{name}:{contrib:.3f}" for name, contrib in row["top_tag_contributors"])
-            print(f"    top tag contributors: {formatted}")
+    _run_preference_flow(recommender, tags, args)
 
 
 if __name__ == "__main__":
