@@ -94,7 +94,7 @@ easy to sanity-check the model's choices.
 ### Recommend from a user's rating history
 If you want the model to build the profile from books a user has already rated (from `ratings.csv`), provide a `user_id`.
 The recommender will filter that user's ratings (>=4.0 by default), build a weighted tag profile from the books they liked,
-and then suggest new books with similar tag signals.
+and then suggest the single best-matching new book with similar tag signals.
 
 ```bash
 python src/recommender.py \
@@ -106,7 +106,12 @@ python src/recommender.py \
 ```
 
 If you omit tag preferences and `--user-id`, the CLI will ask for a `user_id` interactively (when `ratings.csv` is
-available) before falling back to the tag prompt.
+available) before falling back to the tag prompt. The output shows:
+
+- **One recommendation** chosen from the overlap between the user's highly rated books and the tag space.
+- **The rated books that influenced the decision**, listing both their `book_id` and `goodreads_book_id`.
+- **A short explanation** highlighting the strongest tag signals shared between the recommended title and the user's
+  history.
 
 ## Project Structure
 - `src/data_loader.py` – Utilities for loading the Goodbooks CSV files and assembling the book–tag matrix.

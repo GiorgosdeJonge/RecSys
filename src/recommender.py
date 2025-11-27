@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -22,6 +23,14 @@ from .data_loader import (
     load_tags,
 )
 from .feature_builder import build_feature_matrix
+
+
+@dataclass(frozen=True)
+class UserRatingProfile:
+    """Captures a normalized user vector and the rated books that informed it."""
+
+    vector: sparse.csr_matrix
+    rated_books: List[Dict[str, object]]
 
 
 class ContentBasedRecommender:
@@ -119,7 +128,19 @@ class TagPreferenceRecommender:
         *,
         min_rating: float = 4.0,
     ) -> sparse.csr_matrix:
-        """Construct a preference vector from a user's rated books.
+        """Backward-compatible wrapper that returns only the vector."""
+
+        profile = self.build_user_profile_from_ratings(ratings, user_id, min_rating=min_rating)
+        return profile.vector
+
+    def build_user_profile_from_ratings(
+        self,
+        ratings: pd.DataFrame,
+        user_id: int,
+        *,
+        min_rating: float = 4.0,
+    ) -> "UserRatingProfile":
+        """Construct a preference vector and capture the rated books that inform it.
 
         Ratings are filtered by ``min_rating`` and weighted by the rating value.
         The resulting vector is normalized to live in the same space as items.
@@ -136,6 +157,7 @@ class TagPreferenceRecommender:
             )
 
         weighted_rows: List[sparse.csr_matrix] = []
+        rated_sources: List[Dict[str, object]] = []
         for _, row in filtered.iterrows():
             book_id = int(row["book_id"])
             goodreads_id = self.book_id_to_goodreads.get(book_id)
@@ -149,6 +171,17 @@ class TagPreferenceRecommender:
             rating_weight = float(row["rating"])
             weighted_rows.append(self.tfidf_matrix.getrow(idx) * rating_weight)
 
+            book_row = self.books_lookup.loc[goodreads_id] if goodreads_id in self.books_lookup.index else None
+            rated_sources.append(
+                {
+                    "book_id": book_id,
+                    "goodreads_book_id": goodreads_id,
+                    "title": None if book_row is None else (book_row.get("title") or book_row.get("original_title")),
+                    "authors": None if book_row is None else book_row.get("authors", ""),
+                    "rating": rating_weight,
+                }
+            )
+
         if not weighted_rows:
             raise ValueError(
                 f"User {user_id} ratings could not be mapped to tag features. Check that books.csv and book_tags.csv align."
@@ -156,7 +189,11 @@ class TagPreferenceRecommender:
 
         user_vec = sparse.vstack(weighted_rows).sum(axis=0)
         user_vec = sparse.csr_matrix(user_vec)
-        return normalize(user_vec, norm="l2", axis=1, copy=False)
+        normalized = normalize(user_vec, norm="l2", axis=1, copy=False)
+
+        rated_sources.sort(key=lambda entry: entry.get("rating", 0.0), reverse=True)
+
+        return UserRatingProfile(vector=normalized, rated_books=rated_sources)
 
     def recommend(
         self,
@@ -500,6 +537,47 @@ def _print_recommendations(results: pd.DataFrame) -> None:
                 pass
 
 
+def _print_rating_based_recommendation(results: pd.DataFrame, rated_books: List[Dict[str, object]]) -> None:
+    """Print a single recommendation derived from ratings and the books that informed it."""
+
+    pd.set_option("display.max_colwidth", None)
+    if results is None or results.empty:
+        print("No recommendation could be generated from the provided ratings.")
+        return
+
+    top_row = results.iloc[0]
+    title = top_row.get("title") or "<unknown title>"
+    authors = top_row.get("authors") or "<unknown author>"
+    score_val = top_row.get("score", 0.0)
+    try:
+        score = float(score_val if pd.notna(score_val) else 0.0)
+    except Exception:
+        score = 0.0
+
+    print("\nTop recommendation based on your past ratings:\n")
+    print(f"1. {title} — {authors} (score={score:.3f})")
+
+    if rated_books:
+        print("\nBooks that influenced this pick:")
+        for entry in rated_books:
+            src_title = entry.get("title") or "<unknown title>"
+            src_authors = entry.get("authors") or "<unknown author>"
+            src_rating = entry.get("rating")
+            book_id = entry.get("book_id")
+            goodreads_id = entry.get("goodreads_book_id")
+            rating_part = f", rating={src_rating}" if src_rating is not None else ""
+            print(
+                f"- {src_title} — {src_authors} (book_id={book_id}, goodreads_id={goodreads_id}{rating_part})"
+            )
+
+    contributors = top_row.get("top_tag_contributors") or []
+    if contributors:
+        tag_summary = ", ".join(f"{name}:{float(contrib):.3f}" for name, contrib in contributors[:3])
+        print(f"\nWhy this book? Strong tag overlap with your highly rated reads: {tag_summary}")
+    else:
+        print("\nWhy this book? It best matches the tag signals inferred from your highly rated books.")
+
+
 def _run_preference_flow(recommender: TagPreferenceRecommender, tags: pd.DataFrame, args: argparse.Namespace) -> None:
     """Drive the tag-preference path with optional interactivity."""
 
@@ -582,9 +660,9 @@ def main():
     if args.user_id is not None:
         if ratings is None:
             raise FileNotFoundError("ratings.csv is required when --user-id is provided.")
-        user_vec = recommender.build_user_vector_from_ratings(ratings, args.user_id)
-        results = recommender.recommend(user_vec=user_vec, top_k=args.top_k, include_contributors=True)
-        _print_recommendations(results)
+        profile = recommender.build_user_profile_from_ratings(ratings, args.user_id)
+        results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
+        _print_rating_based_recommendation(results, profile.rated_books)
         return
 
     if ratings is not None and preferred_tags is None and preferred_tag_weights is None:
@@ -592,9 +670,9 @@ def main():
         if raw_id:
             try:
                 user_id = int(raw_id)
-                user_vec = recommender.build_user_vector_from_ratings(ratings, user_id)
-                results = recommender.recommend(user_vec=user_vec, top_k=args.top_k, include_contributors=True)
-                _print_recommendations(results)
+                profile = recommender.build_user_profile_from_ratings(ratings, user_id)
+                results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
+                _print_rating_based_recommendation(results, profile.rated_books)
                 return
             except Exception as exc:  # fallback to tag prompt
                 print(f"Could not build recommendations from user_id {raw_id}: {exc}")
