@@ -589,7 +589,7 @@ def _run_preference_flow(recommender: TagPreferenceRecommender, tags: pd.DataFra
     _print_recommendations(results)
 
 
-def main():
+def run_cli():
     args = _parse_args()
 
     books_path = _resolve_data_path(
@@ -682,4 +682,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_cli()
