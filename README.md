@@ -10,6 +10,7 @@ Download the dataset locally (no data is committed to the repo):
    - `data/books.csv` (also `data/goodbooks-10k/books.csv`, `goodbooks-10k/books.csv`, or `books.csv`)
    - `data/tags.csv` (also `data/goodbooks-10k/tags.csv`, `goodbooks-10k/tags.csv`, or `tags.csv`)
    - `data/book_tags.csv` (also `data/goodbooks-10k/book_tags.csv`, `goodbooks-10k/book_tags.csv`, or `book_tags.csv`)
+   - `data/ratings.csv` (also `data/goodbooks-10k/ratings.csv`, `goodbooks-10k/ratings.csv`, or `ratings.csv`)
 
 If your CSVs live somewhere else entirely, either pass the explicit paths via `--books-path`, `--tags-path`, and `--book-tags-path`,
 or set an environment variable `GOODBOOKS_DATA_DIR` that points to the folder containing the files. The CLI will search that
@@ -30,7 +31,7 @@ pip install --no-cache-dir -r requirements.txt
 > system-wide or in another environment, recreate the venv and reinstall the pinned requirements above.
 
 ## Usage
-You can generate recommendations either from a seed title or directly from user tag preferences.
+You can generate recommendations either from a seed title, a user's historical ratings, or directly from user tag preferences.
 If your Goodbooks CSVs live in `./data` (the default suggested layout), you can simply run the commands below without
 adding extra flags. If your files are elsewhere, pass `--books-path`, `--tags-path`, and `--book-tags-path` to point to
 them explicitly.
@@ -89,6 +90,23 @@ At the prompts:
 
 This flow bases the recommendation on the provided tags and then surfaces similar-tag books the user already knows, making it
 easy to sanity-check the model's choices.
+
+### Recommend from a user's rating history
+If you want the model to build the profile from books a user has already rated (from `ratings.csv`), provide a `user_id`.
+The recommender will filter that user's ratings (>=4.0 by default), build a weighted tag profile from the books they liked,
+and then suggest new books with similar tag signals.
+
+```bash
+python src/recommender.py \
+  --books-path data/books.csv \
+  --tags-path data/tags.csv \
+  --book-tags-path data/book_tags.csv \
+  --ratings-path data/ratings.csv \
+  --user-id 123  # replace with a real user_id from ratings.csv
+```
+
+If you omit tag preferences and `--user-id`, the CLI will ask for a `user_id` interactively (when `ratings.csv` is
+available) before falling back to the tag prompt.
 
 ## Project Structure
 - `src/data_loader.py` – Utilities for loading the Goodbooks CSV files and assembling the book–tag matrix.

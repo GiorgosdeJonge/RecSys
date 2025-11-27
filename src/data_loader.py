@@ -66,6 +66,21 @@ def load_book_tags(path: str) -> pd.DataFrame:
     return book_tags
 
 
+def load_ratings(path: str) -> pd.DataFrame:
+    """Load the user ratings table from Goodbooks-10k.
+
+    Expects columns ``user_id``, ``book_id``, and ``rating`` as provided by the
+    original dataset. Additional columns are preserved but not required.
+    """
+
+    ratings = pd.read_csv(path)
+    expected = {"user_id", "book_id", "rating"}
+    missing = expected.difference(ratings.columns)
+    if missing:
+        raise ValueError(f"ratings.csv is missing columns: {missing}")
+    return ratings
+
+
 def build_tag_matrix(
     tags: pd.DataFrame,
     book_tags: pd.DataFrame,

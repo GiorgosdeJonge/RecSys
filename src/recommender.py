@@ -13,7 +13,14 @@ from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 
-from .data_loader import TagMatrices, build_tag_matrix, load_book_tags, load_books, load_tags
+from .data_loader import (
+    TagMatrices,
+    build_tag_matrix,
+    load_book_tags,
+    load_books,
+    load_ratings,
+    load_tags,
+)
 from .feature_builder import build_feature_matrix
 
 
@@ -59,6 +66,9 @@ class TagPreferenceRecommender:
         self.books_lookup = books.set_index("goodreads_book_id")
         self.tag_lookup = tags.set_index("tag_id")["tag_name"] if "tag_name" in tags.columns else None
         self.idx_to_tag_id = {idx: tag_id for tag_id, idx in tag_matrices.tag_id_to_idx.items()}
+        self.book_id_to_goodreads = (
+            books.set_index("book_id")["goodreads_book_id"].to_dict() if "book_id" in books.columns else {}
+        )
 
         # L2-normalized TF–IDF transform of tag counts (item representation)
         transformer = TfidfTransformer(norm="l2", use_idf=True, smooth_idf=True, sublinear_tf=True)
@@ -101,6 +111,52 @@ class TagPreferenceRecommender:
         """Public helper to build an L2-normalized user preference vector."""
 
         return self._make_user_vector(preferred_tags, preferred_tag_weights)
+
+    def build_user_vector_from_ratings(
+        self,
+        ratings: pd.DataFrame,
+        user_id: int,
+        *,
+        min_rating: float = 4.0,
+    ) -> sparse.csr_matrix:
+        """Construct a preference vector from a user's rated books.
+
+        Ratings are filtered by ``min_rating`` and weighted by the rating value.
+        The resulting vector is normalized to live in the same space as items.
+        """
+
+        user_rows = ratings[ratings["user_id"] == user_id]
+        if user_rows.empty:
+            raise ValueError(f"No ratings found for user_id {user_id}.")
+
+        filtered = user_rows[user_rows["rating"] >= min_rating]
+        if filtered.empty:
+            raise ValueError(
+                f"User {user_id} has no ratings >= {min_rating}. Adjust the threshold or provide tag preferences."
+            )
+
+        weighted_rows: List[sparse.csr_matrix] = []
+        for _, row in filtered.iterrows():
+            book_id = int(row["book_id"])
+            goodreads_id = self.book_id_to_goodreads.get(book_id)
+            if goodreads_id is None:
+                continue
+
+            idx = self.tag_matrices.book_id_to_idx.get(int(goodreads_id))
+            if idx is None:
+                continue
+
+            rating_weight = float(row["rating"])
+            weighted_rows.append(self.tfidf_matrix.getrow(idx) * rating_weight)
+
+        if not weighted_rows:
+            raise ValueError(
+                f"User {user_id} ratings could not be mapped to tag features. Check that books.csv and book_tags.csv align."
+            )
+
+        user_vec = sparse.vstack(weighted_rows).sum(axis=0)
+        user_vec = sparse.csr_matrix(user_vec)
+        return normalize(user_vec, norm="l2", axis=1, copy=False)
 
     def recommend(
         self,
@@ -258,6 +314,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--book-tags-path", help="Path to book_tags.csv (defaults to data/book_tags.csv if present)"
     )
+    parser.add_argument("--ratings-path", help="Path to ratings.csv (defaults to data/ratings.csv if present)")
+    parser.add_argument("--user-id", type=int, help="User ID from ratings.csv for history-based recommendations")
     parser.add_argument("--title", help="Book title (full or partial) to base recommendations on")
     parser.add_argument("--preferred-tags", help="Comma-separated tag_ids representing user interests")
     parser.add_argument(
@@ -479,10 +537,24 @@ def main():
         "book_tags.csv",
         "--book-tags-path",
     )
+    ratings_path = None
+    if args.user_id is not None or (args.preferred_tags is None and args.preferred_tag_weights is None and not args.title):
+        ratings_path = _resolve_data_path(
+            args.ratings_path,
+            [
+                "data/goodbooks-10k/ratings.csv",
+                "data/ratings.csv",
+                "goodbooks-10k/ratings.csv",
+                "ratings.csv",
+            ],
+            "ratings.csv",
+            "--ratings-path",
+        )
 
     books = load_books(str(books_path))
     tags = load_tags(str(tags_path))
     book_tags = load_book_tags(str(book_tags_path))
+    ratings = load_ratings(str(ratings_path)) if ratings_path is not None else None
 
     tag_matrix = build_tag_matrix(tags, book_tags, min_count=args.min_count)
 
@@ -506,6 +578,26 @@ def main():
     args.preferred_tags = preferred_tags
     args.preferred_tag_weights = preferred_tag_weights
     recommender = TagPreferenceRecommender(tag_matrix, books, tags)
+
+    if args.user_id is not None:
+        if ratings is None:
+            raise FileNotFoundError("ratings.csv is required when --user-id is provided.")
+        user_vec = recommender.build_user_vector_from_ratings(ratings, args.user_id)
+        results = recommender.recommend(user_vec=user_vec, top_k=args.top_k, include_contributors=True)
+        _print_recommendations(results)
+        return
+
+    if ratings is not None and preferred_tags is None and preferred_tag_weights is None:
+        raw_id = input("Enter a user_id from ratings.csv (press Enter to skip): ").strip()
+        if raw_id:
+            try:
+                user_id = int(raw_id)
+                user_vec = recommender.build_user_vector_from_ratings(ratings, user_id)
+                results = recommender.recommend(user_vec=user_vec, top_k=args.top_k, include_contributors=True)
+                _print_recommendations(results)
+                return
+            except Exception as exc:  # fallback to tag prompt
+                print(f"Could not build recommendations from user_id {raw_id}: {exc}")
 
     _run_preference_flow(recommender, tags, args)
 
