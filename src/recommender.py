@@ -360,7 +360,7 @@ def _parse_args() -> argparse.Namespace:
         help="Comma-separated tag_id:weight pairs to assign different weights to preferences",
     )
     parser.add_argument("--min-count", type=int, default=1, help="Minimum tag count to keep for the matrix")
-    parser.add_argument("--top-k", type=int, default=10, help="Number of recommendations to return")
+    parser.add_argument("--top-k", type=int, default=1, help="Number of recommendations to return (default: 1)")
     parser.add_argument("--text-weight", type=float, default=1.0, help="Weight applied to text features (title flow)")
     parser.add_argument("--tag-weight", type=float, default=1.0, help="Weight applied to tag features (title flow)")
     return parser.parse_args()
@@ -448,7 +448,7 @@ def _resolve_tag_inputs(raw: str, tags: pd.DataFrame) -> Tuple[List[int], List[s
 
 
 def _interactive_tag_prompt(recommender: TagPreferenceRecommender, tags: pd.DataFrame, top_k: int) -> None:
-    """Ask the user for preferred tags and display recommendations plus history context."""
+    """Ask the user for preferred tags and display a single recommendation plus history context."""
 
     print("\nNo tag preferences supplied via flags. Enter them interactively below.")
     raw_tags = input("Enter tag names or IDs you like (comma-separated): ").strip()
@@ -464,19 +464,12 @@ def _interactive_tag_prompt(recommender: TagPreferenceRecommender, tags: pd.Data
         return
 
     user_vec = recommender.make_user_vector(preferred_tags=preferred_tags)
-    results = recommender.recommend(user_vec=user_vec, top_k=top_k, include_contributors=True)
+    results = recommender.recommend(user_vec=user_vec, top_k=max(1, top_k), include_contributors=True)
 
     if results.empty:
         print("No recommendations found for the provided tag preferences.")
     else:
-        print("\nTop recommendations based on your tags:\n")
-        for _, row in results.iterrows():
-            title = row["title"] or "<unknown title>"
-            authors = row["authors"] or "<unknown author>"
-            print(f"{row['rank']:2d}. {title} — {authors} (score={row['score']:.3f})")
-            if row["top_tag_contributors"]:
-                formatted = ", ".join(f"{name}:{contrib:.3f}" for name, contrib in row["top_tag_contributors"])
-                print(f"    top tag contributors: {formatted}")
+        _print_recommendations(results)
 
     raw_history = input("\nOptional: titles you've read (comma-separated, press Enter to skip): ").strip()
     if not raw_history:
@@ -502,39 +495,41 @@ def _interactive_tag_prompt(recommender: TagPreferenceRecommender, tags: pd.Data
 
 
 def _print_recommendations(results: pd.DataFrame) -> None:
-    """Pretty-print recommendation rows safely (no crashes on missing values)."""
+    """Pretty-print the top recommendation safely and explain why it was chosen."""
 
     pd.set_option("display.max_colwidth", None)
     if results is None or len(results) == 0 or results.empty:
         print("No recommendations found for the provided tag preferences.")
         return
 
-    print("\nTop recommendations based on tag preferences:\n")
-    for _, row in results.iterrows():
-        title = row.get("title") or "<unknown title>"
-        authors = row.get("authors") or "<unknown author>"
+    top_row = results.iloc[0]
+    title = top_row.get("title") or "<unknown title>"
+    authors = top_row.get("authors") or "<unknown author>"
 
-        rank_val = row.get("rank", 0)
+    rank_val = top_row.get("rank", 1)
+    try:
+        rank = int(rank_val if pd.notna(rank_val) else 1)
+    except Exception:
+        rank = 1
+
+    score_val = top_row.get("score", 0.0)
+    try:
+        score = float(score_val if pd.notna(score_val) else 0.0)
+    except Exception:
+        score = 0.0
+
+    print("\nTop recommendation based on tag preferences:\n")
+    print(f"{rank:2d}. {title} — {authors} (score={score:.3f})")
+
+    contribs = top_row.get("top_tag_contributors") or []
+    if isinstance(contribs, (list, tuple)) and contribs:
         try:
-            rank = int(rank_val if pd.notna(rank_val) else 0)
+            formatted = ", ".join(f"{name}:{float(contrib):.3f}" for name, contrib in contribs[:3])
+            print(f"\nWhy this book? Strong overlap with your tag preferences: {formatted}")
         except Exception:
-            rank = 0
-
-        score_val = row.get("score", 0.0)
-        try:
-            score = float(score_val if pd.notna(score_val) else 0.0)
-        except Exception:
-            score = 0.0
-
-        print(f"{rank:2d}. {title} — {authors} (score={score:.3f})")
-
-        contribs = row.get("top_tag_contributors") or []
-        if isinstance(contribs, (list, tuple)) and contribs:
-            try:
-                formatted = ", ".join(f"{name}:{float(contrib):.3f}" for name, contrib in contribs)
-                print(f"    top tag contributors: {formatted}")
-            except Exception:
-                pass
+            print("\nWhy this book? It best matches the tag signals you provided.")
+    else:
+        print("\nWhy this book? It best matches the tag signals you provided.")
 
 
 def _print_rating_based_recommendation(results: pd.DataFrame, rated_books: List[Dict[str, object]]) -> None:
@@ -645,10 +640,16 @@ def main():
             tag_weight=args.tag_weight,
         )
         recommender = ContentBasedRecommender(features, ordered_books)
-        results = recommender.recommend_from_title(args.title, top_k=args.top_k)
+        results = recommender.recommend_from_title(args.title, top_k=max(1, args.top_k))
 
-        for i, (title, authors, score) in enumerate(results, start=1):
-            print(f"{i:2d}. {title} — {authors} (score={score:.3f})")
+        if not results:
+            print(f"No books match the query '{args.title}'.")
+            return
+
+        top_title, top_authors, top_score = results[0]
+        print("\nTop recommendation based on your seed title:\n")
+        print(f"1. {top_title} — {top_authors} (score={top_score:.3f})")
+        print("\nWhy this book? It has the strongest combined text/tag similarity to your provided title.")
         return
 
     preferred_tags = _parse_tag_list(args.preferred_tags)

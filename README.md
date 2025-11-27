@@ -37,7 +37,7 @@ adding extra flags. If your files are elsewhere, pass `--books-path`, `--tags-pa
 them explicitly.
 
 ### Recommend from a seed title
-Build the feature matrix (titles/authors + tag features) and ask for similar books:
+Build the feature matrix (titles/authors + tag features) and ask for the single closest match:
 
 ```bash
 python src/recommender.py \
@@ -47,18 +47,17 @@ python src/recommender.py \
   --title "The Hobbit"
 ```
 
-The script will print the top recommendations for the requested title. You can adjust the number of results with `--top-k` and search by partial title matches.
+The script prints **one recommendation** (by default) for the requested title with a short note about why it was chosen. You can still adjust the number of results with `--top-k` if you want to see more, and search by partial title matches.
 
 ### Recommend from user tag preferences
-Use a list of tag identifiers (optionally with weights) to describe a user's interests. The recommender constructs a TF–IDF tag profile for each book and scores cosine similarity to the provided user vector:
+Use a list of tag identifiers (optionally with weights) to describe a user's interests. The recommender constructs a TF–IDF tag profile for each book and scores cosine similarity to the provided user vector, then reports **only the top pick with an explanation** by default:
 
 ```bash
 python src/recommender.py \
   --books-path data/books.csv \
   --tags-path data/tags.csv \
   --book-tags-path data/book_tags.csv \
-  --preferred-tags "30574,11305,11557" \
-  --top-k 15
+  --preferred-tags "30574,11305,11557"
 ```
 
 To weight specific tags more heavily, pass `--preferred-tag-weights` using `tag_id:weight` pairs:
@@ -75,7 +74,7 @@ The output includes the strongest contributing tags per book (tag names are show
 
 ### Interactive tag prompt (asks you for tags and shows matching history)
 If you prefer to type tags at runtime, simply omit `--preferred-tags` and `--preferred-tag-weights`. The CLI will ask for tag
-names or IDs, recommend books for those tags, and optionally list books you've read that share the same tag signals:
+names or IDs, recommend **one book** for those tags (with an explanation), and optionally list books you've read that share the same tag signals:
 
 ```bash
 python src/recommender.py \
