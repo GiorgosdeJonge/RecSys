@@ -367,9 +367,22 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _project_root() -> Path:
-    """Return the repository root when invoked from src/ files."""
+    """Best-effort discovery of the project root across relocated repo layouts.
 
-    return Path(__file__).resolve().parents[1]
+    The recommender has been moved between repos (for example, nested under
+    ``src/CB``) where simply walking one level up from ``__file__`` no longer
+    lands on the actual repo root that contains ``data/``. We therefore scan
+    ancestors for common markers (``.git`` or a ``data`` directory) and fall
+    back to the parent of ``src`` when no marker is found.
+    """
+
+    path = Path(__file__).resolve()
+    for parent in path.parents:
+        if (parent / ".git").exists() or (parent / "data").exists():
+            return parent
+
+    # Fallback: assume the repo root is one level above the package root
+    return path.parents[1]
 
 
 def _expand_env_path(env_var: str) -> Optional[Path]:
