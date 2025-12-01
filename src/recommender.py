@@ -625,6 +625,39 @@ def _print_eval_results(eval_real, eval_zero, k: int) -> None:
             print("\nWARN: Little/no gain over no-history control. Check leakage or model logic.")
 
 
+def _print_eval_with_explanation(eval_real, eval_zero, k: int) -> None:
+    """Print metrics plus a short explanation of what the numbers mean."""
+
+    _print_eval_results(eval_real, eval_zero, k)
+
+    if not (
+        np.isfinite(eval_real.hit_at_k)
+        and np.isfinite(eval_zero.hit_at_k)
+        and np.isfinite(eval_real.mrr_at_k)
+        and np.isfinite(eval_zero.mrr_at_k)
+    ):
+        print("\nEvaluation explanation unavailable because metrics are undefined (likely due to sparse data).")
+        return
+
+    delta_hit = eval_real.hit_at_k - eval_zero.hit_at_k
+    delta_mrr = eval_real.mrr_at_k - eval_zero.mrr_at_k
+
+    print(
+        "\nExplanation: Hit@{k} measures how often the held-out last book appears in the top {k}; MRR@{k}"
+        " rewards higher ranks. Compared to the no-history control, Hit@{k} changed by {dh:+.4f} and"
+        " MRR@{k} changed by {dm:+.4f}, showing how much the model benefits from using each user's past ratings."
+        .format(k=k, dh=delta_hit, dm=delta_mrr)
+    )
+
+
+def _run_evaluation_and_explain(ratings: pd.DataFrame, k: int) -> None:
+    """Run temporal evaluation and print an explanation for the observed metrics."""
+
+    prepared = prepare_ratings(ratings)
+    eval_real, eval_zero = run_temporal_evaluation(prepared, k=k)
+    _print_eval_with_explanation(eval_real, eval_zero, k)
+
+
 def run_cli():
     args = _parse_args()
 
@@ -650,9 +683,7 @@ def run_cli():
     if args.eval_last_holdout:
         if ratings is None:
             raise FileNotFoundError("ratings.csv is required when --eval-last-holdout is set.")
-        prepared = prepare_ratings(ratings)
-        eval_real, eval_zero = run_temporal_evaluation(prepared, k=max(1, args.eval_k))
-        _print_eval_results(eval_real, eval_zero, max(1, args.eval_k))
+        _run_evaluation_and_explain(ratings, k=max(1, args.eval_k))
         return
 
     books_path = _resolve_data_path(
@@ -714,6 +745,7 @@ def run_cli():
         profile = recommender.build_user_profile_from_ratings(ratings, args.user_id)
         results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
         _print_rating_based_recommendation(results, profile.rated_books)
+        _run_evaluation_and_explain(ratings, k=max(1, args.eval_k))
         return
 
     if ratings is not None and preferred_tags is None and preferred_tag_weights is None:
@@ -724,6 +756,7 @@ def run_cli():
                 profile = recommender.build_user_profile_from_ratings(ratings, user_id)
                 results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
                 _print_rating_based_recommendation(results, profile.rated_books)
+                _run_evaluation_and_explain(ratings, k=max(1, args.eval_k))
                 return
             except Exception as exc:  # fallback to tag prompt
                 print(f"Could not build recommendations from user_id {raw_id}: {exc}")

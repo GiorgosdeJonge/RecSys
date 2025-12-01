@@ -111,6 +111,8 @@ available) before falling back to the tag prompt. The output shows:
 - **The rated books that influenced the decision**, listing both their `book_id` and `goodreads_book_id`.
   - **A short explanation** highlighting the strongest tag signals shared between the recommended title and the user's
     history.
+- **Evaluation metrics printed immediately after the recommendation**, comparing Hit@K/MRR@K against a no-history
+  control so you can see how much the model benefits from using the user's past ratings.
 
 ### Offline evaluation (temporal holdout on ratings)
 To sanity-check that recommendations rely on user histories, you can run an item–item evaluation that holds out each user's
