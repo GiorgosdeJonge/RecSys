@@ -22,6 +22,7 @@ from .data_loader import (
     load_ratings,
     load_tags,
 )
+from .evaluation import format_eval_summary, prepare_ratings, run_temporal_evaluation
 from .feature_builder import build_feature_matrix
 
 
@@ -352,6 +353,12 @@ def _parse_args() -> argparse.Namespace:
         "--book-tags-path", help="Path to book_tags.csv (defaults to data/book_tags.csv if present)"
     )
     parser.add_argument("--ratings-path", help="Path to ratings.csv (defaults to data/ratings.csv if present)")
+    parser.add_argument(
+        "--eval-last-holdout",
+        action="store_true",
+        help="Run temporal last-item evaluation with ratings.csv and exit",
+    )
+    parser.add_argument("--eval-k", type=int, default=10, help="Cutoff k for evaluation metrics (default: 10)")
     parser.add_argument("--user-id", type=int, help="User ID from ratings.csv for history-based recommendations")
     parser.add_argument("--title", help="Book title (full or partial) to base recommendations on")
     parser.add_argument("--preferred-tags", help="Comma-separated tag_ids representing user interests")
@@ -602,8 +609,51 @@ def _run_preference_flow(recommender: TagPreferenceRecommender, tags: pd.DataFra
     _print_recommendations(results)
 
 
+def _print_eval_results(eval_real, eval_zero, k: int) -> None:
+    print("\n=== Temporal Last-Item Evaluation ===")
+    for line in format_eval_summary(eval_real, k):
+        print(line)
+
+    print("\n=== Sanity: Remove User History (should drop) ===")
+    for line in format_eval_summary(eval_zero, k):
+        print(line)
+
+    if np.isfinite(eval_real.hit_at_k) and np.isfinite(eval_zero.hit_at_k):
+        if eval_real.hit_at_k > max(0.01, eval_zero.hit_at_k + 0.02):
+            print("\nPASS: Model uses past ratings to improve next-book recommendation.")
+        else:
+            print("\nWARN: Little/no gain over no-history control. Check leakage or model logic.")
+
+
 def run_cli():
     args = _parse_args()
+
+    ratings_needed = args.eval_last_holdout or args.user_id is not None or (
+        args.preferred_tags is None and args.preferred_tag_weights is None and not args.title
+    )
+    ratings_path = None
+    ratings = None
+    if ratings_needed:
+        ratings_path = _resolve_data_path(
+            args.ratings_path,
+            [
+                "data/goodbooks-10k/ratings.csv",
+                "data/ratings.csv",
+                "goodbooks-10k/ratings.csv",
+                "ratings.csv",
+            ],
+            "ratings.csv",
+            "--ratings-path",
+        )
+        ratings = load_ratings(str(ratings_path))
+
+    if args.eval_last_holdout:
+        if ratings is None:
+            raise FileNotFoundError("ratings.csv is required when --eval-last-holdout is set.")
+        prepared = prepare_ratings(ratings)
+        eval_real, eval_zero = run_temporal_evaluation(prepared, k=max(1, args.eval_k))
+        _print_eval_results(eval_real, eval_zero, max(1, args.eval_k))
+        return
 
     books_path = _resolve_data_path(
         args.books_path,
@@ -623,19 +673,6 @@ def run_cli():
         "book_tags.csv",
         "--book-tags-path",
     )
-    ratings_path = None
-    if args.user_id is not None or (args.preferred_tags is None and args.preferred_tag_weights is None and not args.title):
-        ratings_path = _resolve_data_path(
-            args.ratings_path,
-            [
-                "data/goodbooks-10k/ratings.csv",
-                "data/ratings.csv",
-                "goodbooks-10k/ratings.csv",
-                "ratings.csv",
-            ],
-            "ratings.csv",
-            "--ratings-path",
-        )
 
     books = load_books(str(books_path))
     tags = load_tags(str(tags_path))

@@ -109,8 +109,24 @@ available) before falling back to the tag prompt. The output shows:
 
 - **One recommendation** chosen from the overlap between the user's highly rated books and the tag space.
 - **The rated books that influenced the decision**, listing both their `book_id` and `goodreads_book_id`.
-- **A short explanation** highlighting the strongest tag signals shared between the recommended title and the user's
-  history.
+  - **A short explanation** highlighting the strongest tag signals shared between the recommended title and the user's
+    history.
+
+### Offline evaluation (temporal holdout on ratings)
+To sanity-check that recommendations rely on user histories, you can run an item–item evaluation that holds out each user's
+last rated book, computes Hit@K and MRR@K, and compares them to a control where histories are wiped. Because the
+Goodbooks ratings file lacks timestamps, the evaluator synthesizes a per-user timestamp from the original row order to build
+the temporal split.
+
+```bash
+python src/recommender.py \
+  --ratings-path data/ratings.csv \
+  --eval-last-holdout \
+  --eval-k 10
+```
+
+The output prints metrics for the real model and the no-history control. A noticeable drop in the control confirms the
+recommender depends on past ratings rather than memorizing global popularity.
 
 ## Project Structure
 - `src/data_loader.py` – Utilities for loading the Goodbooks CSV files and assembling the book–tag matrix.
