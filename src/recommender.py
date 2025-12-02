@@ -659,6 +659,25 @@ def _run_evaluation_and_explain(ratings: pd.DataFrame, k: int) -> None:
     _print_eval_with_explanation(eval_real, eval_zero, k)
 
 
+def _recommend_with_user_ratings(
+    recommender: TagPreferenceRecommender,
+    ratings: pd.DataFrame,
+    user_id: int,
+    eval_k: int,
+) -> None:
+    """End-to-end rating-driven flow: recommend, then print evaluation metrics."""
+
+    profile = recommender.build_user_profile_from_ratings(ratings, user_id)
+    results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
+    _print_rating_based_recommendation(results, profile.rated_books)
+
+    print("\nEvaluating recommendation quality on historical ratings...")
+    try:
+        _run_evaluation_and_explain(ratings, k=max(1, eval_k))
+    except Exception as exc:
+        print(f"Evaluation could not be computed: {exc}")
+
+
 def run_cli():
     args = _parse_args()
 
@@ -743,10 +762,7 @@ def run_cli():
     if args.user_id is not None:
         if ratings is None:
             raise FileNotFoundError("ratings.csv is required when --user-id is provided.")
-        profile = recommender.build_user_profile_from_ratings(ratings, args.user_id)
-        results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
-        _print_rating_based_recommendation(results, profile.rated_books)
-        _run_evaluation_and_explain(ratings, k=max(1, args.eval_k))
+        _recommend_with_user_ratings(recommender, ratings, args.user_id, args.eval_k)
         return
 
     if ratings is not None and preferred_tags is None and preferred_tag_weights is None:
@@ -754,10 +770,7 @@ def run_cli():
         if raw_id:
             try:
                 user_id = int(raw_id)
-                profile = recommender.build_user_profile_from_ratings(ratings, user_id)
-                results = recommender.recommend(user_vec=profile.vector, top_k=1, include_contributors=True)
-                _print_rating_based_recommendation(results, profile.rated_books)
-                _run_evaluation_and_explain(ratings, k=max(1, args.eval_k))
+                _recommend_with_user_ratings(recommender, ratings, user_id, args.eval_k)
                 return
             except Exception as exc:  # fallback to tag prompt
                 print(f"Could not build recommendations from user_id {raw_id}: {exc}")
