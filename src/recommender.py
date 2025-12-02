@@ -651,12 +651,15 @@ def _print_eval_with_explanation(eval_real, eval_zero, k: int) -> None:
     )
 
 
-def _run_evaluation_and_explain(ratings: pd.DataFrame, k: int) -> None:
-    """Run temporal evaluation and print an explanation for the observed metrics."""
+def _run_evaluation_and_explain(ratings: pd.DataFrame, k: int):
+    """Run temporal evaluation, print metrics + explanation, and return the summaries."""
 
     prepared = prepare_ratings(ratings)
     eval_real, eval_zero = run_temporal_evaluation(prepared, k=k)
+
+    print("\nEvaluation metrics based on historical ratings:\n")
     _print_eval_with_explanation(eval_real, eval_zero, k)
+    return eval_real, eval_zero
 
 
 def _recommend_with_user_ratings(
