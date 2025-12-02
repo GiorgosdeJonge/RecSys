@@ -147,7 +147,8 @@ class TagPreferenceRecommender:
         The resulting vector is normalized to live in the same space as items.
         """
 
-        user_rows = ratings[ratings["user_id"] == user_id]
+        cleaned = ratings.dropna(subset=["user_id", "book_id", "rating"])
+        user_rows = cleaned[cleaned["user_id"] == user_id]
         if user_rows.empty:
             raise ValueError(f"No ratings found for user_id {user_id}.")
 

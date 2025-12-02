@@ -32,7 +32,7 @@ def prepare_ratings(ratings: pd.DataFrame) -> pd.DataFrame:
     last-item holdout split.
     """
 
-    df = ratings.copy()
+    df = ratings.dropna(subset=["user_id", "rating", "book_id"]).copy()
     if "item_id" not in df.columns:
         if "book_id" in df.columns:
             df = df.rename(columns={"book_id": "item_id"})
